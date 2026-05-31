@@ -156,6 +156,29 @@ def get_llm_provider(settings: Settings) -> LLMProvider:
 
 **Self-hosted users** configure `LLM_PROVIDER=groq` + their `GROQ_API_KEY` and run. **Managed Talkeo Cloud** uses a private adapter loaded dynamically — the public code stays clean.
 
+## Streaming contract
+
+Talkeo is streaming-first: LLM tokens, transforms, and any incremental output reach the clients over **Server-Sent Events (SSE)**. The transport is a thin, reusable layer (`app/api/sse.py`) that frames an `AsyncIterator[str]` of content chunks — the same shape every provider port already exposes (`LLMProvider.stream_chat -> AsyncIterator[str]`). Endpoints produce chunks; they never format SSE by hand.
+
+Every stream — `/api/v1/stream/hello` today, LLM and transform endpoints later — speaks one wire contract of three event types:
+
+```
+data: <chunk>\n\n                              # content (default event, no `event:` line)
+event: done\n
+data: [DONE]\n\n                               # clean end-of-stream sentinel
+event: error\n
+data: {"code": "...", "message": "..."}\n\n     # mid-stream failure
+```
+
+Rules:
+
+1. **Content frames carry no `event:` line** — they are the default SSE message. Multi-line chunks are split across repeated `data:` lines (spec requirement).
+2. **`done` is mandatory on success.** A stream that ends without `done` is treated as broken by the client. Connection close alone is ambiguous (success vs. dropped socket), so we never rely on it.
+3. **`error` reports mid-stream failure.** `code` is a stable machine token the client switches on; `message` is human-readable and **client-safe**. Sources raise `StreamError(code, message)` for expected failures; any other exception is logged server-side and masked as `{"code": "internal_error", "message": "stream failed"}` — internals never reach the client.
+4. **`done` and `error` are mutually exclusive** — a stream emits exactly one terminal event.
+
+Defining `error` from the first endpoint (rather than when the LLM lands) keeps the contract — and the client parser — stable across every future stream. This mirrors how OpenAI, Anthropic, and Groq frame their SSE APIs with named events.
+
 ## Prompts as data
 
 The legacy backend (now deprecated, internal) had prompt assembly tightly coupled with database calls, transformations, and conditional logic in a single 850+ line module. This is the failure mode we explicitly avoid.

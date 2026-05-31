@@ -29,6 +29,42 @@ uvicorn app.main:app --reload
 
 The API will be available at `http://localhost:8000`. OpenAPI docs at `/docs`.
 
+## Streaming (SSE)
+
+Talkeo streams incremental output (LLM tokens, transforms) over **Server-Sent Events**. `/api/v1/stream/hello` is the reference endpoint that exercises the transport without any provider:
+
+```bash
+curl -N http://localhost:8000/api/v1/stream/hello
+```
+
+`-N` disables curl's buffering, so you see each word arrive on its own line over ~1.5s rather than all at once — proof the response streams incrementally.
+
+Every Talkeo stream speaks the same three-event contract, so one client parser handles all of them:
+
+```
+data: Hello                       ← content chunk (default event)
+data: from
+...
+event: done
+data: [DONE]                      ← clean end-of-stream
+
+event: error
+data: {"code": "...", "message": "..."}   ← mid-stream failure
+```
+
+A `done` event always closes a successful stream; an `error` event (with a machine-readable `code` and a client-safe `message`) signals failure. The client never infers the outcome from connection close. Full spec: [`docs/architecture.md`](./docs/architecture.md#streaming-contract).
+
+Minimal Swift consumer (the pattern the Mac app uses):
+
+```swift
+let (bytes, _) = try await URLSession.shared.bytes(from: url)
+for try await line in bytes.lines {
+    if line.hasPrefix("event: error") { /* read next data: line, surface error */ }
+    else if line == "data: [DONE]"   { break }                 // clean end
+    else if line.hasPrefix("data: ") { append(String(line.dropFirst(6))) }
+}
+```
+
 ## Repository layout
 
 ```
