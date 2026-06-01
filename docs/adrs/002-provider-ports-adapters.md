@@ -5,13 +5,13 @@
 
 ## Context
 
-Talkeo integrates external providers for LLM (Groq, Anthropic, Gemini, ...), STT (Deepgram, Groq, ElevenLabs), TTS (ElevenLabs, OpenAI, ...), and pronunciation (Azure). Provider choice is contextual:
+Talkeo integrates external providers for LLM, STT, and TTS. Provider choice is contextual:
 
 - **Self-hosted users** pick their own provider and supply their own API keys.
 - **Managed Talkeo Cloud** routes to providers internally based on cost, latency, and quality signals.
 - **Tests** must run without hitting paid APIs.
 
-Hard-coding any specific provider into application or domain code would lock us into that choice and would expose internal routing in the public repo.
+Hard-coding any specific provider into application or domain code would lock us into that choice and would expose internal routing in the public repo. The domain must stay provider-agnostic: which provider/model is used is configuration, never code.
 
 ## Decision
 
@@ -23,11 +23,13 @@ class LLMProvider(Protocol):
     async def stream_chat(self, messages, **opts) -> AsyncIterator[str]: ...
 ```
 
-Implement provider **adapters** in the infrastructure layer, one per real provider:
+Implement provider **adapters** in the infrastructure layer. Adapters **delegate to a battle-tested engine** rather than hand-rolling each provider's SDK — the LLM adapter delegates to a unified LLM gateway, speech adapters to a voice framework's provider plugins (see **ADR-008** for engine choices and rationale):
 
 ```python
-# infrastructure/providers/llm/groq.py
-class GroqLLMProvider:
+# infrastructure/providers/llm/gateway.py
+class GatewayLLMProvider:
+    """Adapter fulfilling the LLMProvider port by delegating to the LLM gateway.
+    The engine handles per-provider differences (reasoning, streaming, tools)."""
     async def stream_chat(self, messages, **opts): ...
 ```
 
@@ -35,11 +37,11 @@ A **registry** selects the active adapter at startup, based on configuration:
 
 ```python
 def get_llm_provider(settings: Settings) -> LLMProvider:
-    name = settings.LLM_PROVIDER  # "groq" | "anthropic" | ...
+    name = settings.LLM_PROVIDER  # provider/model selected by config, not code
     ...
 ```
 
-Use cases depend only on the port. They never import a specific adapter.
+Use cases depend only on the port. They never import a specific adapter, and never name a provider.
 
 ## Consequences
 

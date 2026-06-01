@@ -5,9 +5,9 @@
 ## Goals
 
 1. **Multi-client by design.** Mac, Windows, Web, and Mobile consume the same backend. None of them are coupled to backend internals beyond the HTTP/WebSocket contract.
-2. **Provider-agnostic.** LLM, STT, and TTS providers (Groq, Anthropic, ElevenLabs, Deepgram, etc.) are swappable via configuration. Self-hosted users plug in their own keys; managed Cloud routes internally.
+2. **Provider-agnostic.** LLM, STT, and TTS providers are swappable via configuration — the domain never names a provider. Adapters delegate to engines: LLM to a unified gateway, speech to a voice framework's plugins (see [ADR-008](./adrs/008-llm-gateway-and-speech-engines.md)). Self-hosted users plug in their own keys; managed Cloud routes internally.
 3. **Clean separation of concerns.** Prompts are not mixed with logic. Database queries are not made from route handlers. Providers do not appear in domain code.
-4. **Independent bounded contexts.** Session, Pedagogy, User, Learning, Director, and Pronunciation each own their data and rules. They share a database, not logic.
+4. **Independent bounded contexts.** Session, Pedagogy, User, Learning, and Director each own their data and rules. They share a database, not logic.
 5. **Public-safe.** Any external contributor can read the code without seeing secrets, internal IP, or provider-routing logic.
 
 ## Layered architecture (Clean / Hexagonal)
@@ -34,7 +34,6 @@
 │  - PromptAssembler: composes prompts from data + templates.  │
 │  - DirectorPipeline: post-session reasoning.                 │
 │  - TransformService: translate/improve stateless flows.      │
-│  - PronunciationService.                                     │
 │  Orchestrates domain. Does not know providers or storage.    │
 └──────────────────────────────────────────────────────────────┘
                           │
@@ -49,7 +48,7 @@
                           ▼
 ┌──────────────────────────────────────────────────────────────┐
 │  Infrastructure Layer (Adapters)                             │
-│  - Provider adapters: Groq, Anthropic, Gemini, ElevenLabs... │
+│  - Provider adapters: LLM → gateway; STT/TTS → voice plugins.│
 │  - Repositories: Postgres via asyncpg / SQLAlchemy.          │
 │  - Cache: in-memory (Phase A-B), Redis (Phase C+).           │
 │  - Prompt loader: reads /prompts/*.md.                       │
@@ -127,16 +126,14 @@ class LLMProvider(Protocol):
     ) -> AsyncIterator[str]: ...
 ```
 
-Adapters implement it in `infrastructure/providers/llm/`:
+Adapters implement it in `infrastructure/providers/llm/`. Rather than hand-rolling each provider's SDK, the adapter **delegates to a unified LLM gateway** that normalizes providers and their reasoning/streaming controls; speech adapters delegate to a voice framework's provider plugins (which also serve the realtime agent). See [ADR-008](./adrs/008-llm-gateway-and-speech-engines.md) for the engine choices and the latency discipline a gateway requires.
 
 ```python
-# infrastructure/providers/llm/groq.py
-class GroqLLMProvider:
-    def __init__(self, api_key: str, default_model: str = "llama-3.1-70b-versatile"):
-        self.client = AsyncGroq(api_key=api_key)
-        ...
-
-    async def stream_chat(self, messages, model=None, **opts):
+# infrastructure/providers/llm/gateway.py
+class GatewayLLMProvider:
+    """Fulfills the LLMProvider port by delegating to the LLM gateway.
+    The gateway handles per-provider differences; this stays provider-agnostic."""
+    async def stream_chat(self, messages, model=None, **opts) -> AsyncIterator[str]:
         ...
 ```
 
@@ -145,16 +142,11 @@ A factory selects which adapter to load based on configuration:
 ```python
 # infrastructure/providers/llm/registry.py
 def get_llm_provider(settings: Settings) -> LLMProvider:
-    name = settings.LLM_PROVIDER
-    if name == "groq":
-        return GroqLLMProvider(api_key=settings.GROQ_API_KEY)
-    if name == "anthropic":
-        return AnthropicLLMProvider(api_key=settings.ANTHROPIC_API_KEY)
-    # additional adapters can be registered here
-    raise ValueError(f"Unknown LLM provider: {name}")
+    name = settings.LLM_PROVIDER  # provider/model selected by config, not code
+    ...
 ```
 
-**Self-hosted users** configure `LLM_PROVIDER=groq` + their `GROQ_API_KEY` and run. **Managed Talkeo Cloud** uses a private adapter loaded dynamically — the public code stays clean.
+**Self-hosted users** point the gateway at their own provider + key and run. **Managed Talkeo Cloud** routes internally via the gateway — the public code stays clean and never names a provider.
 
 ## Streaming contract
 
@@ -228,7 +220,6 @@ CREATE SCHEMA user;           -- profiles, preferences
 CREATE SCHEMA learning;       -- can_dos, errors, memory
 CREATE SCHEMA pedagogy;       -- curriculum_units, class_plans
 CREATE SCHEMA director;       -- session_summaries, evaluations
-CREATE SCHEMA pronunciation;  -- assessments
 ```
 
 Each repository in `infrastructure/repositories/postgres/` owns a single schema. Cross-schema queries are technically allowed but discouraged — go through the relevant repository instead.
@@ -291,6 +282,7 @@ Decisions recorded in [`docs/adrs/`](./adrs/):
 - ADR-005: Strangler Fig migration from internal deprecated codebase
 - ADR-006: Database design principles
 - ADR-007: Testing strategy and PR conventions
+- ADR-008: LLM gateway (LiteLLM) and speech engines (LiveKit) behind provider ports
 
 ## Contributing
 

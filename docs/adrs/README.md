@@ -15,3 +15,4 @@ ADRs are immutable — when a decision is superseded, a new ADR replaces it rath
 | [005](./005-strangler-fig-migration.md) | Strangler Fig migration from internal deprecated codebase | Accepted |
 | [006](./006-db-design-principles.md) | Database design principles | Accepted |
 | [007](./007-testing-strategy-pr-conventions.md) | Testing strategy and PR conventions | Accepted |
+| [008](./008-llm-gateway-and-speech-engines.md) | LLM gateway (LiteLLM) and speech engines (LiveKit) behind provider ports | Accepted |
