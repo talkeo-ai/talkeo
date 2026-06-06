@@ -7,6 +7,7 @@ port and receive the selected adapter via DI (``app/api/deps.py``).
 from app.core.config import Settings
 from app.domain.providers.llm import LLMProvider
 from app.infrastructure.providers.llm.fake import FakeLLMProvider
+from app.infrastructure.providers.llm.litellm import LiteLLMProvider
 
 
 def get_llm_provider(settings: Settings) -> LLMProvider:
@@ -15,5 +16,9 @@ def get_llm_provider(settings: Settings) -> LLMProvider:
     if name == "fake":
         return FakeLLMProvider()
     if name == "litellm":
-        raise ValueError("litellm LLM adapter lands in issue #3")
+        if not settings.LITELLM_BASE_URL:
+            raise ValueError(
+                "LITELLM_BASE_URL is required when LLM_PROVIDER=litellm"
+            )
+        return LiteLLMProvider(settings)
     raise ValueError(f"Unknown LLM provider: {name}")

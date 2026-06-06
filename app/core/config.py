@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     LITELLM_API_KEY: str | None = None
     LLM_MODEL: str | None = None
 
+    # LiteLLM client timeouts in seconds, env-overridable. `connect` bounds the
+    # TCP handshake to the gateway; `read` bounds waiting on the gateway / model
+    # stream. Used by the litellm adapter (#3).
+    LLM_CONNECT_TIMEOUT: float = 5.0
+    LLM_READ_TIMEOUT: float = 60.0
+
     # Reserved for Phase B+. Unused in Phase A.
     DB_URL: str | None = None
 
