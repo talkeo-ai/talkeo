@@ -36,6 +36,19 @@ class Settings(BaseSettings):
     LLM_CONNECT_TIMEOUT: float = 5.0
     LLM_READ_TIMEOUT: float = 60.0
 
+    # LiveKit TTS adapter (#4). `TTS_ENGINE` picks the LiveKit plugin behind the
+    # `livekit` adapter; swapping it is config-only. Voice/model are optional —
+    # `None` lets the plugin use its own default. Keys are required (validated in
+    # the registry) only for the selected engine. `TTS_TIMEOUT` bounds the
+    # standalone synthesize call. Only `wav` output is supported today.
+    TTS_ENGINE: Literal["openai", "elevenlabs"] = "openai"
+    TTS_VOICE: str | None = None
+    TTS_MODEL: str | None = None
+    TTS_AUDIO_FORMAT: str = "wav"
+    TTS_TIMEOUT: float = 30.0
+    OPENAI_API_KEY: str | None = None
+    ELEVENLABS_API_KEY: str | None = None
+
     # Reserved for Phase B+. Unused in Phase A.
     DB_URL: str | None = None
 

@@ -7,6 +7,7 @@ from app.domain.providers.stt import STTProvider
 from app.domain.providers.tts import TTSProvider
 from app.infrastructure.providers.llm.litellm import LiteLLMProvider
 from app.infrastructure.providers.llm.registry import get_llm_provider
+from app.infrastructure.providers.tts.livekit import LiveKitTTSProvider
 from app.infrastructure.providers.stt.registry import get_stt_provider
 from app.infrastructure.providers.tts.registry import get_tts_provider
 
@@ -48,9 +49,21 @@ def test_litellm_requires_base_url():
         get_llm_provider(_settings(LLM_PROVIDER="litellm", LITELLM_BASE_URL=None))
 
 
-def test_livekit_tts_adapter_not_yet_wired():
-    with pytest.raises(ValueError, match="issue #4"):
-        get_tts_provider(_settings(TTS_PROVIDER="livekit"))
+def test_registry_selects_livekit_tts():
+    provider = get_tts_provider(
+        _settings(
+            TTS_PROVIDER="livekit",
+            TTS_ENGINE="openai",
+            OPENAI_API_KEY="sk-test",
+        )
+    )
+    assert isinstance(provider, LiveKitTTSProvider)
+    assert isinstance(provider, TTSProvider)
+
+
+def test_livekit_tts_requires_api_key():
+    with pytest.raises(ValueError, match="OPENAI_API_KEY is required"):
+        get_tts_provider(_settings(TTS_PROVIDER="livekit", TTS_ENGINE="openai"))
 
 
 def test_livekit_stt_adapter_not_yet_wired():
