@@ -5,6 +5,7 @@ from app.core.config import Settings
 from app.domain.providers.llm import LLMProvider
 from app.domain.providers.stt import STTProvider
 from app.domain.providers.tts import TTSProvider
+from app.infrastructure.providers.llm.litellm import LiteLLMProvider
 from app.infrastructure.providers.llm.registry import get_llm_provider
 from app.infrastructure.providers.stt.registry import get_stt_provider
 from app.infrastructure.providers.tts.registry import get_tts_provider
@@ -30,9 +31,21 @@ def test_registry_selects_fake_stt():
     assert isinstance(provider, STTProvider)
 
 
-def test_litellm_llm_adapter_not_yet_wired():
-    with pytest.raises(ValueError, match="issue #3"):
-        get_llm_provider(_settings(LLM_PROVIDER="litellm"))
+def test_registry_selects_litellm():
+    provider = get_llm_provider(
+        _settings(
+            LLM_PROVIDER="litellm",
+            LITELLM_BASE_URL="http://gw",
+            LLM_MODEL="m",
+        )
+    )
+    assert isinstance(provider, LiteLLMProvider)
+    assert isinstance(provider, LLMProvider)
+
+
+def test_litellm_requires_base_url():
+    with pytest.raises(ValueError, match="LITELLM_BASE_URL is required"):
+        get_llm_provider(_settings(LLM_PROVIDER="litellm", LITELLM_BASE_URL=None))
 
 
 def test_livekit_tts_adapter_not_yet_wired():
