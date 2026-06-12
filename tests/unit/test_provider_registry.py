@@ -14,7 +14,10 @@ from app.infrastructure.providers.tts.registry import get_tts_provider
 
 def _settings(**overrides) -> Settings:
     # ENV=test so the prod-safety validator never blocks fake providers here.
-    return Settings(ENV="test", **overrides)
+    # _env_file=None keeps these tests hermetic — a developer's local .env (which
+    # may carry real keys, e.g. OPENAI_API_KEY) must not change which branch the
+    # registry takes, or assertions about a missing key would flip by environment.
+    return Settings(ENV="test", _env_file=None, **overrides)
 
 
 def test_registry_selects_fake_llm():
