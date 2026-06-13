@@ -14,7 +14,10 @@ from livekit.agents import (
 
 from app.core.config import Settings
 from app.domain.providers.errors import TTSError
-from app.infrastructure.providers.tts.livekit import LiveKitTTSProvider
+from app.infrastructure.providers.tts.livekit import (
+    LiveKitTTSProvider,
+    build_tts_plugin,
+)
 
 _SAMPLE_RATE = 24000
 
@@ -182,3 +185,28 @@ def test_cancellation_propagates_unwrapped():
     )
     with pytest.raises(asyncio.CancelledError):
         _collect(_provider(plugin))
+
+
+# --- build_tts_plugin: engine is the caller's argument, not read from settings
+
+
+def test_build_tts_plugin_openai():
+    plugin = build_tts_plugin(
+        Settings(ENV="test", _env_file=None, OPENAI_API_KEY="sk-test"),
+        engine="openai",
+    )
+    assert "openai" in type(plugin).__module__
+
+
+def test_build_tts_plugin_elevenlabs():
+    plugin = build_tts_plugin(
+        Settings(ENV="test", _env_file=None, ELEVENLABS_API_KEY="el-test"),
+        engine="elevenlabs",
+    )
+    assert "elevenlabs" in type(plugin).__module__
+
+
+def test_build_tts_plugin_unknown_engine():
+    with pytest.raises(TTSError) as excinfo:
+        build_tts_plugin(Settings(ENV="test", _env_file=None), engine="bogus")
+    assert excinfo.value.code == "config"

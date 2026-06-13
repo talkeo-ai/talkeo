@@ -64,11 +64,18 @@ def _to_tts_error(exc: APIError) -> TTSError:
     return TTSError("provider_error", "TTS request failed")
 
 
-def _build_tts(settings: Settings, *, voice: str | None) -> lk_tts.TTS:
-    """Build the configured LiveKit TTS plugin. Lazy-imported per engine so only
-    the selected plugin package is touched. Both engines forced PCM-native."""
+def build_tts_plugin(
+    settings: Settings, *, engine: str, voice: str | None = None
+) -> lk_tts.TTS:
+    """Build a LiveKit TTS plugin for ``engine``. Lazy-imported per engine so only
+    the selected plugin package is touched. Both engines forced PCM-native.
+
+    The ``engine`` is the caller's choice, not read from settings here: the
+    one-shot adapter passes ``TTS_ENGINE`` for ``/speak``, the voice agent (#15)
+    passes ``AGENT_TTS_ENGINE`` — one speech integration, each surface picks its
+    own engine (ADR-008)."""
     chosen_voice = voice or settings.TTS_VOICE
-    if settings.TTS_ENGINE == "openai":
+    if engine == "openai":
         from livekit.plugins import openai
 
         kwargs: dict[str, Any] = {
@@ -81,7 +88,7 @@ def _build_tts(settings: Settings, *, voice: str | None) -> lk_tts.TTS:
             kwargs["model"] = settings.TTS_MODEL
         return openai.TTS(**kwargs)
 
-    if settings.TTS_ENGINE == "elevenlabs":
+    if engine == "elevenlabs":
         from livekit.plugins import elevenlabs
 
         kwargs: dict[str, Any] = {
@@ -94,7 +101,7 @@ def _build_tts(settings: Settings, *, voice: str | None) -> lk_tts.TTS:
             kwargs["model"] = settings.TTS_MODEL
         return elevenlabs.TTS(**kwargs)
 
-    raise TTSError("config", f"unknown TTS engine: {settings.TTS_ENGINE!r}")
+    raise TTSError("config", f"unknown TTS engine: {engine!r}")
 
 
 class LiveKitTTSProvider:
@@ -121,7 +128,9 @@ class LiveKitTTSProvider:
         if fmt != "wav":
             raise TTSError("bad_request", f"unsupported audio_format: {fmt!r} (only 'wav')")
 
-        tts = self._injected or _build_tts(self._settings, voice=voice)
+        tts = self._injected or build_tts_plugin(
+            self._settings, engine=self._settings.TTS_ENGINE, voice=voice
+        )
         own = self._injected is None
         try:
             frames: list[rtc.AudioFrame] = []
