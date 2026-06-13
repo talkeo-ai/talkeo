@@ -49,6 +49,26 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     ELEVENLABS_API_KEY: str | None = None
 
+    # Voice agent (LiveKit Agents worker, #15) — settings are named by surface so
+    # the agent can run different engines/models than the api's /speak. The agent
+    # is the sole STT consumer (#7 was dropped), so `AGENT_STT_*` stand alone with
+    # no fallback. Keys are shared with TTS (`OPENAI_API_KEY` / `ELEVENLABS_API_KEY`).
+    AGENT_STT_ENGINE: Literal["openai", "elevenlabs"] = "openai"
+    AGENT_STT_MODEL: str | None = None
+    AGENT_STT_LANGUAGE: str | None = None
+
+    # `AGENT_TTS_ENGINE` lets the agent pick a cheaper/different TTS engine than
+    # /speak; it falls back to `TTS_ENGINE` when unset. `AGENT_LLM_MODEL` falls
+    # back to `LLM_MODEL` — the agent reaches the SAME LiteLLM gateway as the api
+    # (ADR-008) via LiveKit's native `openai.LLM`, so both run off one gateway.
+    # LiveKit room credentials are required only to run the worker (validated at
+    # agent boot, not here — the api service runs in prod without them).
+    AGENT_TTS_ENGINE: Literal["openai", "elevenlabs"] | None = None
+    AGENT_LLM_MODEL: str | None = None
+    LIVEKIT_URL: str | None = None
+    LIVEKIT_API_KEY: str | None = None
+    LIVEKIT_API_SECRET: str | None = None
+
     # Reserved for Phase B+. Unused in Phase A.
     DB_URL: str | None = None
 
