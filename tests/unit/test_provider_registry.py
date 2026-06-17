@@ -85,5 +85,7 @@ def test_fake_forbidden_in_staging():
 
 
 def test_fake_allowed_in_development():
-    settings = Settings(ENV="development")
+    # _env_file=None for hermeticity — a developer's local .env may set a real
+    # provider, which would otherwise mask the development default asserted here.
+    settings = Settings(ENV="development", _env_file=None)
     assert settings.LLM_PROVIDER == "fake"
