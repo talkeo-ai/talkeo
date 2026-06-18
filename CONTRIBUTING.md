@@ -57,6 +57,14 @@ See [`docs/architecture.md`](./docs/architecture.md#inviolable-rules) for the fu
 
 See [ADR-007](./docs/adrs/007-testing-strategy-pr-conventions.md) for the rationale.
 
+## Proof of work (required for review)
+
+AI-generated code is welcome (see the project mindset), but **AI output alone is never enough** — you must run it and confirm it works *before* requesting review. A PR that "should work" but was never executed will be closed. Every PR must include:
+
+- **Evidence it ran.** Paste the `pytest` output for the tests you added, plus a real run of the behavior — a `curl`/`httpie` transcript against a local server for an endpoint, or a **short terminal recording / GIF** for anything with visible streaming or runtime behavior (e.g. an SSE or audio stream).
+- **It builds and tests pass locally** — `uv run pytest tests/` green, not just CI.
+- **What you actually tested** — the real steps you ran, not aspirational checkboxes.
+
 ## Testing
 
 ```bash
