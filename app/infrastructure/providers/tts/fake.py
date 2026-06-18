@@ -16,7 +16,6 @@ class FakeTTSProvider:
         text: str,
         *,
         voice: str | None = None,
-        audio_format: str | None = None,
     ) -> AsyncIterator[bytes]:
         payload = f"fake audio for: {text}".encode()
         # Two chunks, so consumers exercise the streaming path.
