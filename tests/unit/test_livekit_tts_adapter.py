@@ -1,6 +1,4 @@
 import asyncio
-import io
-import wave
 from types import SimpleNamespace
 
 import pytest
@@ -103,16 +101,18 @@ def _collect(provider, text="hello", **kwargs):
 # --- synthesis ---------------------------------------------------------------
 
 
-def test_synthesize_yields_valid_wav_bytes():
+def test_synthesize_yields_raw_pcm_chunks():
+    # Two frames in → at least two chunks out (streamed as they arrive, not
+    # buffered into one body), each the frame's raw s16le PCM bytes.
     plugin = _FakePlugin(stream=_FakeStream([_frame(), _frame()]))
     chunks = _collect(_provider(plugin))
-    assert chunks and all(isinstance(c, bytes) for c in chunks)
+    assert len(chunks) == 2
+    assert all(isinstance(c, bytes) for c in chunks)
 
-    wav = b"".join(chunks)
-    with wave.open(io.BytesIO(wav)) as w:
-        assert w.getframerate() == _SAMPLE_RATE
-        assert w.getnchannels() == 1
-        assert w.getnframes() > 0
+    pcm = b"".join(chunks)
+    # 2 frames × 240 samples × 2 bytes/sample (16-bit mono) = 960 bytes of silence.
+    assert pcm == b"\x00\x00" * 240 * 2
+    assert len(pcm) == 2 * 240 * 2
 
 
 def test_injected_plugin_is_not_closed():
@@ -130,13 +130,6 @@ def test_empty_text_is_bad_request(text):
     plugin = _FakePlugin(stream=_FakeStream([_frame()]))
     with pytest.raises(TTSError) as excinfo:
         _collect(_provider(plugin), text=text)
-    assert excinfo.value.code == "bad_request"
-
-
-def test_unsupported_audio_format_is_bad_request():
-    plugin = _FakePlugin(stream=_FakeStream([_frame()]))
-    with pytest.raises(TTSError) as excinfo:
-        _collect(_provider(plugin), audio_format="mp3")
     assert excinfo.value.code == "bad_request"
 
 

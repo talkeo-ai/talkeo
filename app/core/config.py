@@ -40,11 +40,11 @@ class Settings(BaseSettings):
     # `livekit` adapter; swapping it is config-only. Voice/model are optional —
     # `None` lets the plugin use its own default. Keys are required (validated in
     # the registry) only for the selected engine. `TTS_TIMEOUT` bounds the
-    # standalone synthesize call. Only `wav` output is supported today.
+    # standalone synthesize call. Output is raw PCM (s16le, 24 kHz, mono) —
+    # the fixed `TTSProvider` wire format, not configurable per request.
     TTS_ENGINE: Literal["openai", "elevenlabs"] = "openai"
     TTS_VOICE: str | None = None
     TTS_MODEL: str | None = None
-    TTS_AUDIO_FORMAT: str = "wav"
     TTS_TIMEOUT: float = 30.0
     OPENAI_API_KEY: str | None = None
     ELEVENLABS_API_KEY: str | None = None

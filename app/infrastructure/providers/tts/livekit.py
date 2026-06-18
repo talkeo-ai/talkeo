@@ -7,12 +7,11 @@ The engine (``openai`` / ``elevenlabs``) is chosen by config, so swapping it is 
 one-line env change; LiveKit types (``rtc.AudioFrame``, ``SynthesizedAudio``)
 never cross the port — the port stays ``AsyncIterator[bytes]``.
 
-Every plugin yields raw PCM frames, so we assemble them into a single WAV with
-the stdlib-backed ``rtc.AudioFrame.to_wav_bytes()`` — zero extra deps, no ffmpeg.
-Both engines run PCM-native (``response_format="pcm"`` / ``encoding="pcm_24000"``)
-so the framework never spins up its PyAV decoder. Output is buffered (a short
-pronunciation phrase) which also gives the endpoint clean error status codes;
-realtime no-buffer streaming is the voice agent's concern (#15).
+Every plugin yields raw PCM frames; we unwrap each frame and yield its bytes as
+it arrives — no buffering, so playback starts at the first chunk (#22). Both
+engines run PCM-native (``response_format="pcm"`` / ``encoding="pcm_24000"``) so
+the framework never spins up its PyAV decoder and the bytes are already the
+port's wire format (s16le, 24 kHz, mono — see ``app.domain.providers.tts``).
 
 Retries are disabled (``max_retry=0``); the engine owns retries.
 """
@@ -23,7 +22,6 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
-from livekit import rtc
 from livekit.agents import (
     APIConnectionError,
     APIError,
@@ -35,10 +33,6 @@ from livekit.agents import tts as lk_tts
 
 from app.core.config import Settings
 from app.domain.providers.errors import TTSError
-
-# WAV is assembled whole, then handed out in chunks so the streaming port is
-# exercised end-to-end (the HTTP layer reassembles for a one-shot response).
-_CHUNK = 32 * 1024
 
 
 def _to_tts_error(exc: APIError) -> TTSError:
@@ -119,33 +113,31 @@ class LiveKitTTSProvider:
         text: str,
         *,
         voice: str | None = None,
-        audio_format: str | None = None,
     ) -> AsyncIterator[bytes]:
         if not text or not text.strip():
             raise TTSError("bad_request", "text is required")
-
-        fmt = audio_format or self._settings.TTS_AUDIO_FORMAT
-        if fmt != "wav":
-            raise TTSError("bad_request", f"unsupported audio_format: {fmt!r} (only 'wav')")
 
         tts = self._injected or build_tts_plugin(
             self._settings, engine=self._settings.TTS_ENGINE, voice=voice
         )
         own = self._injected is None
         try:
-            frames: list[rtc.AudioFrame] = []
             stream = tts.synthesize(
                 text,
                 conn_options=APIConnectOptions(
                     max_retry=0, timeout=self._settings.TTS_TIMEOUT
                 ),
             )
+            produced = False
             async with stream:
                 async for audio in stream:
-                    frames.append(audio.frame)
-            if not frames:
+                    produced = True
+                    # ``frame.data`` is a memoryview of int16 samples; its bytes
+                    # are already s16le PCM — the port's wire format. Yield as it
+                    # arrives so the endpoint can stream chunk-by-chunk.
+                    yield bytes(audio.frame.data)
+            if not produced:
                 raise TTSError("provider_error", "TTS produced no audio")
-            wav = rtc.combine_audio_frames(frames).to_wav_bytes()
         except asyncio.CancelledError:
             # Never wrap cancellation: it is a BaseException so it propagates and
             # tears the task down cleanly. Wrapping it would swallow the cancel.
@@ -155,6 +147,3 @@ class LiveKitTTSProvider:
         finally:
             if own:
                 await tts.aclose()
-
-        for i in range(0, len(wav), _CHUNK):
-            yield wav[i : i + _CHUNK]
