@@ -33,6 +33,13 @@ class TranslateRequest(BaseModel):
     source_lang: str | None = None
 
 
+class ExplainRequest(BaseModel):
+    term: str
+    sentence: str
+    target_lang: str
+    source_lang: str | None = None
+
+
 async def _as_sse(source: AsyncIterator[str]) -> AsyncIterator[str]:
     """Bridge a service delta stream to the SSE layer: a domain ``ProviderError``
     becomes a ``StreamError`` so the helper emits a clean ``event: error`` frame
@@ -60,6 +67,35 @@ async def translate(
         _as_sse(
             service.translate(
                 req.text,
+                source_lang=req.source_lang,
+                target_lang=req.target_lang,
+            )
+        )
+    )
+
+
+@router.post("/explain")
+async def explain(
+    req: ExplainRequest,
+    llm: LLMProvider = Depends(get_llm_provider),
+):
+    if not req.term or not req.term.strip():
+        return JSONResponse(
+            {"code": "bad_request", "message": "term is required"},
+            status_code=400,
+        )
+    if not req.sentence or not req.sentence.strip():
+        return JSONResponse(
+            {"code": "bad_request", "message": "sentence is required"},
+            status_code=400,
+        )
+
+    service = TransformService(llm)
+    return sse_response(
+        _as_sse(
+            service.explain(
+                req.term,
+                req.sentence,
                 source_lang=req.source_lang,
                 target_lang=req.target_lang,
             )

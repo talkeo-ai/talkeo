@@ -26,3 +26,26 @@ def test_translate_auto_detect_branch_streams():
     svc = TransformService(FakeLLMProvider())
     deltas = _collect(svc.translate("Bonjour", target_lang="EN"))
     assert "".join(deltas).strip() == "fake reply to: Bonjour"
+
+
+def test_explain_streams_deltas_with_term_and_sentence():
+    # FakeLLMProvider echoes the last user message, so this proves both the term
+    # and the sentence reach the user message (not buried in the system prompt).
+    svc = TransformService(FakeLLMProvider())
+    deltas = _collect(
+        svc.explain(
+            "jumps over",
+            "The fox jumps over the dog.",
+            source_lang="EN",
+            target_lang="ES",
+        )
+    )
+    joined = "".join(deltas)
+    assert "jumps over" in joined
+    assert "The fox jumps over the dog." in joined
+
+
+def test_explain_auto_detect_branch_streams():
+    svc = TransformService(FakeLLMProvider())
+    deltas = _collect(svc.explain("lazy", "The lazy dog.", target_lang="ES"))
+    assert "lazy" in "".join(deltas)
