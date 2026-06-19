@@ -46,3 +46,31 @@ class TransformService:
         messages = [Message("system", prompt), Message("user", text)]
         async for delta in self._llm.stream_chat(messages, temperature=0.2):
             yield delta
+
+    async def explain(
+        self,
+        term: str,
+        sentence: str,
+        *,
+        source_lang: str | None = None,
+        target_lang: str,
+    ) -> AsyncIterator[str]:
+        """Stream a contextual explanation of ``term`` as used in ``sentence``.
+
+        The explanation is written in ``target_lang`` (e.g. an English term
+        explained in Spanish for an ES learner). ``term`` and ``sentence`` are
+        untrusted input, so they ride in the user message rather than the system
+        prompt, the same injection-resistant shape ``translate`` uses. The
+        instructions (auto-detect when ``source_lang`` is absent) stay in the
+        system prompt. A modest temperature keeps the explanation natural while
+        staying grounded in the sentence.
+        """
+        prompt = render_prompt(
+            "explain",
+            source_lang=source_lang or "the detected source language",
+            target_lang=target_lang,
+        )
+        content = f"Term: {term}\n\nSentence: {sentence}"
+        messages = [Message("system", prompt), Message("user", content)]
+        async for delta in self._llm.stream_chat(messages, temperature=0.3):
+            yield delta
