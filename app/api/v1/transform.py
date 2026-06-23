@@ -20,11 +20,23 @@ from pydantic import BaseModel
 
 from app.api.deps import get_llm_provider
 from app.api.sse import StreamError, sse_response
+from app.application.cards import ExplainCard
 from app.application.transform_service import TransformService
 from app.domain.providers.errors import ProviderError
 from app.domain.providers.llm import LLMProvider
 
 router = APIRouter(prefix="/transform", tags=["transform"])
+
+# Map a domain error code onto an HTTP status, for the JSON (non-SSE) routes.
+# `bad_request` is the only client-caused one; the rest are upstream/engine.
+_STATUS = {
+    "bad_request": 400,
+    "rate_limit": 429,
+    "timeout": 504,
+    "auth": 502,
+    "provider_error": 502,
+    "config": 502,
+}
 
 
 class TranslateRequest(BaseModel):
@@ -74,7 +86,7 @@ async def translate(
     )
 
 
-@router.post("/explain")
+@router.post("/explain", response_model=ExplainCard)
 async def explain(
     req: ExplainRequest,
     llm: LLMProvider = Depends(get_llm_provider),
@@ -90,14 +102,19 @@ async def explain(
             status_code=400,
         )
 
+    # explain returns a short structured card, not prose, so this route responds
+    # with JSON (not SSE). The status is sent after the model call, so a provider
+    # failure maps to a clean status here rather than an in-band error frame.
     service = TransformService(llm)
-    return sse_response(
-        _as_sse(
-            service.explain(
-                req.term,
-                req.sentence,
-                source_lang=req.source_lang,
-                target_lang=req.target_lang,
-            )
+    try:
+        return await service.explain(
+            req.term,
+            req.sentence,
+            source_lang=req.source_lang,
+            target_lang=req.target_lang,
         )
-    )
+    except ProviderError as exc:
+        return JSONResponse(
+            {"code": exc.code, "message": exc.message},
+            status_code=_STATUS.get(exc.code, 502),
+        )

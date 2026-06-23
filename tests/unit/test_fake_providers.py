@@ -1,5 +1,6 @@
 import asyncio
 
+from app.application.cards import ExplainCard
 from app.domain.providers.messages import Message
 from app.domain.providers.stt import Transcript
 from app.infrastructure.providers.llm.fake import FakeLLMProvider
@@ -29,6 +30,22 @@ def test_fake_tts_streams_audio_bytes():
     assert len(chunks) == 2
     assert all(isinstance(c, bytes) for c in chunks)
     assert b"".join(chunks) == b"fake audio for: hi"
+
+
+def test_fake_llm_complete_returns_valid_card_json():
+    async def run() -> str:
+        provider = FakeLLMProvider()
+        messages = [
+            Message(role="user", content="Term: light\n\nSentence: travel light")
+        ]
+        return await provider.complete(messages)
+
+    raw = asyncio.run(run())
+
+    # The dev fake returns a card-shaped JSON the application can validate.
+    card = ExplainCard.model_validate_json(raw)
+    assert card.term == "light"  # echoed from the user message
+    assert card.meanings
 
 
 def test_fake_stt_returns_transcript():

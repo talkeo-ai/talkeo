@@ -88,6 +88,18 @@ def _collect(provider, messages=None):
     return asyncio.run(run())
 
 
+def _completion(content):
+    """A non-streaming completion shaped like an OpenAI response."""
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+    )
+
+
+def _complete(provider, messages=None, **kwargs):
+    messages = messages or [Message(role="user", content="hi")]
+    return asyncio.run(provider.complete(messages, **kwargs))
+
+
 # --- streaming ---------------------------------------------------------------
 
 
@@ -142,6 +154,37 @@ def test_cancellation_propagates_unwrapped():
     )
     with pytest.raises(asyncio.CancelledError):
         _collect(_provider(client))
+
+
+# --- complete (non-streaming) ------------------------------------------------
+
+
+def test_complete_returns_full_text():
+    # _FakeClient.create returns whatever `stream` holds; for the non-streaming
+    # path that is a completion object, and complete() reads message.content.
+    client = _FakeClient(stream=_completion('{"ok": true}'))
+    assert _complete(_provider(client)) == '{"ok": true}'
+
+
+def test_complete_none_content_returns_empty_string():
+    client = _FakeClient(stream=_completion(None))
+    assert _complete(_provider(client)) == ""
+
+
+def test_complete_errors_map_to_llm_error():
+    client = _FakeClient(
+        create_error=openai.RateLimitError("rate", response=_response(429), body=None)
+    )
+    with pytest.raises(LLMError) as excinfo:
+        _complete(_provider(client))
+    assert excinfo.value.code == "rate_limit"
+
+
+def test_complete_no_model_configured_fails_loud():
+    provider = _provider(_FakeClient(stream=_completion("x")), model=None)
+    with pytest.raises(LLMError) as excinfo:
+        _complete(provider)
+    assert excinfo.value.code == "config"
 
 
 # --- config ------------------------------------------------------------------

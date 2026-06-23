@@ -32,3 +32,21 @@ class LLMProvider(Protocol):
         need them — additive and non-breaking (ADR-008).
         """
         ...
+
+    async def complete(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        response_format: dict | None = None,
+    ) -> str:
+        """Return a full chat completion as one string (no streaming).
+
+        For one-shot structured responses (e.g. a JSON vocab card) where the
+        caller needs the whole result, not deltas. ``response_format`` is an
+        optional provider hint such as ``{"type": "json_object"}`` to request the
+        model's JSON mode; the caller still validates the parsed result.
+        """
+        ...
