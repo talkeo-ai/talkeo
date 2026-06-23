@@ -13,9 +13,26 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+from pydantic import ValidationError
+
+from app.application.cards import ExplainCard
 from app.application.prompts import render_prompt
+from app.domain.providers.errors import LLMError
 from app.domain.providers.llm import LLMProvider
 from app.domain.providers.messages import Message
+
+
+def _strip_json_fences(text: str) -> str:
+    """Drop a leading ``json`` / trailing ``` fence if the model wrapped its JSON
+    in a markdown code block, leaving the bare object for parsing."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t[3:]
+        if t[:4].lower() == "json":
+            t = t[4:]
+        if t.rstrip().endswith("```"):
+            t = t.rstrip()[:-3]
+    return t.strip()
 
 
 class TransformService:
@@ -54,16 +71,20 @@ class TransformService:
         *,
         source_lang: str | None = None,
         target_lang: str,
-    ) -> AsyncIterator[str]:
-        """Stream a contextual explanation of ``term`` as used in ``sentence``.
+    ) -> ExplainCard:
+        """Return a structured vocabulary card for ``term`` as used in ``sentence``.
 
-        The explanation is written in ``target_lang`` (e.g. an English term
-        explained in Spanish for an ES learner). ``term`` and ``sentence`` are
-        untrusted input, so they ride in the user message rather than the system
-        prompt, the same injection-resistant shape ``translate`` uses. The
-        instructions (auto-detect when ``source_lang`` is absent) stay in the
-        system prompt. A modest temperature keeps the explanation natural while
-        staying grounded in the sentence.
+        The card (meanings/examples/insight) is written in ``target_lang`` (e.g.
+        an English term explained in Spanish for an ES learner). ``term`` and
+        ``sentence`` are untrusted input, so they ride in the user message rather
+        than the system prompt, the same injection-resistant shape ``translate``
+        uses; the instructions (auto-detect when ``source_lang`` is absent) stay
+        in the system prompt.
+
+        The model is asked for strict JSON (its JSON mode) and a low temperature;
+        the result is validated against ``ExplainCard``. A malformed or
+        non-conforming response is surfaced as a provider error (the router maps
+        it to 502) rather than reaching the client.
         """
         prompt = render_prompt(
             "explain",
@@ -72,5 +93,12 @@ class TransformService:
         )
         content = f"Term: {term}\n\nSentence: {sentence}"
         messages = [Message("system", prompt), Message("user", content)]
-        async for delta in self._llm.stream_chat(messages, temperature=0.3):
-            yield delta
+        raw = await self._llm.complete(
+            messages,
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        try:
+            return ExplainCard.model_validate_json(_strip_json_fences(raw))
+        except ValidationError as exc:
+            raise LLMError("provider_error", "explanation was not valid") from exc

@@ -101,3 +101,36 @@ class LiteLLMProvider:
             raise
         except openai.APIError as exc:
             raise _to_llm_error(exc) from exc
+
+    async def complete(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        response_format: dict | None = None,
+    ) -> str:
+        chosen_model = model or self._default_model
+        if not chosen_model:
+            raise LLMError("config", "no LLM model configured")
+
+        kwargs: dict[str, Any] = {
+            "model": chosen_model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "stream": False,
+        }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+
+        try:
+            resp = await self._client.chat.completions.create(**kwargs)
+            return resp.choices[0].message.content or ""
+        except asyncio.CancelledError:
+            raise
+        except openai.APIError as exc:
+            raise _to_llm_error(exc) from exc

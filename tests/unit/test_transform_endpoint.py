@@ -70,7 +70,14 @@ def test_translate_provider_error_emits_error_frame():
     assert "[DONE]" not in body  # a broken stream must not look cleanly finished
 
 
-# --- explain ----------------------------------------------------------------
+# --- explain (structured JSON, not SSE) -------------------------------------
+
+
+class _BadJsonLLM:
+    """Stub whose structured call returns non-JSON, so the card fails to parse."""
+
+    async def complete(self, messages, **kwargs) -> str:
+        return "this is not json"
 
 
 def _explain_body(**overrides):
@@ -83,16 +90,14 @@ def _explain_body(**overrides):
     return body
 
 
-def test_explain_streams_sse():
-    with _client(FakeLLMProvider()).stream(
-        "POST", _EXPLAIN_URL, json=_explain_body()
-    ) as resp:
-        assert resp.status_code == 200
-        assert resp.headers["content-type"].startswith("text/event-stream")
-        body = "".join(resp.iter_text())
-    assert "data: " in body
-    assert "event: done" in body
-    assert "[DONE]" in body
+def test_explain_returns_json_card():
+    resp = _client(FakeLLMProvider()).post(_EXPLAIN_URL, json=_explain_body())
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    card = resp.json()
+    assert card["term"] == "jumps over"  # echoed by the fake card
+    assert card["meanings"]  # non-empty
+    assert "insight" in card
 
 
 def test_explain_empty_term_maps_to_400():
@@ -116,12 +121,7 @@ def test_explain_missing_target_lang_is_422():
     assert resp.status_code == 422
 
 
-def test_explain_provider_error_emits_error_frame():
-    with _client(_RaisingLLM()).stream(
-        "POST", _EXPLAIN_URL, json=_explain_body()
-    ) as resp:
-        assert resp.status_code == 200
-        body = "".join(resp.iter_text())
-    assert "event: error" in body
-    assert "rate_limit" in body
-    assert "[DONE]" not in body
+def test_explain_malformed_model_output_maps_to_502():
+    resp = _client(_BadJsonLLM()).post(_EXPLAIN_URL, json=_explain_body())
+    assert resp.status_code == 502
+    assert resp.json()["code"] == "provider_error"
