@@ -48,4 +48,7 @@ class ExplainCard(BaseModel):
     category: str = ""
     meanings: list[str] = Field(min_length=1)
     examples: list[Example] = []
-    insight: Insight | None = None
+    # Required: every card carries one insight (the prompt always emits one), so
+    # the client never has to handle a null. A missing insight fails validation
+    # rather than reaching the client.
+    insight: Insight

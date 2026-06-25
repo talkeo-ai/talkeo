@@ -58,6 +58,6 @@ class FakeLLMProvider:
                 "examples": [
                     {"source": f"A **{term}** in a sentence.", "target": "Un ejemplo."}
                 ],
-                "insight": None,
+                "insight": {"type": "pattern", "text": f"Nota de ejemplo sobre {term}."},
             }
         )
