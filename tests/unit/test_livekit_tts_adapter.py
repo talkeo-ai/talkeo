@@ -199,6 +199,22 @@ def test_build_tts_plugin_elevenlabs():
     assert "elevenlabs" in type(plugin).__module__
 
 
+def test_build_tts_plugin_cartesia():
+    plugin = build_tts_plugin(
+        Settings(ENV="test", _env_file=None, CARTESIA_API_KEY="cart-test"),
+        engine="cartesia",
+    )
+    assert "cartesia" in type(plugin).__module__
+
+
+def test_build_tts_plugin_deepgram():
+    plugin = build_tts_plugin(
+        Settings(ENV="test", _env_file=None, DEEPGRAM_API_KEY="dg-test"),
+        engine="deepgram",
+    )
+    assert "deepgram" in type(plugin).__module__
+
+
 def test_build_tts_plugin_unknown_engine():
     with pytest.raises(TTSError) as excinfo:
         build_tts_plugin(Settings(ENV="test", _env_file=None), engine="bogus")

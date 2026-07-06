@@ -62,7 +62,9 @@ def build_tts_plugin(
     settings: Settings, *, engine: str, voice: str | None = None
 ) -> lk_tts.TTS:
     """Build a LiveKit TTS plugin for ``engine``. Lazy-imported per engine so only
-    the selected plugin package is touched. Both engines forced PCM-native.
+    the selected plugin package is touched. Every engine is forced PCM-native at
+    the port's wire format (s16le, 24 kHz, mono) so the framework never spins up
+    its PyAV decoder and the bytes are already what the endpoint streams.
 
     The ``engine`` is the caller's choice, not read from settings here: the
     one-shot adapter passes ``TTS_ENGINE`` for ``/speak``, the voice agent (#15)
@@ -85,7 +87,7 @@ def build_tts_plugin(
     if engine == "elevenlabs":
         from livekit.plugins import elevenlabs
 
-        kwargs: dict[str, Any] = {
+        kwargs = {
             "api_key": settings.ELEVENLABS_API_KEY,
             "encoding": "pcm_24000",
         }
@@ -94,6 +96,38 @@ def build_tts_plugin(
         if settings.TTS_MODEL:
             kwargs["model"] = settings.TTS_MODEL
         return elevenlabs.TTS(**kwargs)
+
+    if engine == "cartesia":
+        from livekit.plugins import cartesia
+
+        # Pin the wire format explicitly rather than trust plugin defaults —
+        # Cartesia emits PCM-native at this encoding/rate (no PyAV).
+        kwargs = {
+            "api_key": settings.CARTESIA_API_KEY,
+            "encoding": "pcm_s16le",
+            "sample_rate": 24000,
+        }
+        if chosen_voice:
+            kwargs["voice"] = chosen_voice
+        if settings.TTS_MODEL:
+            kwargs["model"] = settings.TTS_MODEL
+        return cartesia.TTS(**kwargs)
+
+    if engine == "deepgram":
+        from livekit.plugins import deepgram
+
+        # Deepgram Aura: `linear16` is s16le PCM; pin the rate to the port's.
+        # The voice is part of the model name (e.g. `aura-2-andromeda-en`), so
+        # `TTS_VOICE` maps onto `model` here — there is no separate voice field.
+        kwargs = {
+            "api_key": settings.DEEPGRAM_API_KEY,
+            "encoding": "linear16",
+            "sample_rate": 24000,
+        }
+        model = settings.TTS_MODEL or chosen_voice
+        if model:
+            kwargs["model"] = model
+        return deepgram.TTS(**kwargs)
 
     raise TTSError("config", f"unknown TTS engine: {engine!r}")
 
