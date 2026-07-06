@@ -46,6 +46,15 @@ class TransformService:
         # the model name varies per feature, the gateway endpoint is global.
         self._settings = settings or get_settings()
 
+    def _resolve_model(self, feature_model: str | None) -> str | None:
+        """Per-feature model name, falling back to the global ``LLM_MODEL``.
+
+        Each feature (translate / explain / improve) may pin its own model via
+        ``*_LLM_MODEL``; when unset it rides the default ``LLM_MODEL``. Only the
+        model *name* varies — the single LiteLLM gateway (ADR-008) routes by it.
+        """
+        return feature_model or self._settings.LLM_MODEL
+
     async def translate(
         self,
         text: str,
@@ -66,7 +75,7 @@ class TransformService:
             target_lang=target_lang,
         )
         messages = [Message("system", prompt), Message("user", text)]
-        model = self._settings.TRANSLATE_LLM_MODEL or self._settings.LLM_MODEL
+        model = self._resolve_model(self._settings.TRANSLATE_LLM_MODEL)
         async for delta in self._llm.stream_chat(
             messages, model=model, temperature=0.2
         ):
@@ -101,7 +110,7 @@ class TransformService:
         )
         content = f"Term: {term}\n\nSentence: {sentence}"
         messages = [Message("system", prompt), Message("user", content)]
-        model = self._settings.EXPLAIN_LLM_MODEL or self._settings.LLM_MODEL
+        model = self._resolve_model(self._settings.EXPLAIN_LLM_MODEL)
         raw = await self._llm.complete(
             messages,
             model=model,
@@ -135,7 +144,7 @@ class TransformService:
         """
         prompt = render_prompt("improve", target_lang=target_lang)
         messages = [Message("system", prompt), Message("user", text)]
-        model = self._settings.IMPROVE_LLM_MODEL or self._settings.LLM_MODEL
+        model = self._resolve_model(self._settings.IMPROVE_LLM_MODEL)
         raw = await self._llm.complete(
             messages,
             model=model,

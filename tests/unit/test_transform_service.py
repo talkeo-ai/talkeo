@@ -7,8 +7,15 @@ import pytest
 from app.application.cards import ExplainCard
 from app.application.improvements import ImproveResult
 from app.application.transform_service import TransformService
+from app.core.config import Settings
 from app.domain.providers.errors import LLMError
 from app.infrastructure.providers.llm.fake import FakeLLMProvider
+
+
+def _settings(**overrides) -> Settings:
+    # ENV=test + _env_file=None keep these hermetic — the model asserted below
+    # must come from the overrides here, never from a developer's local .env.
+    return Settings(ENV="test", _env_file=None, **overrides)
 
 
 def _collect(agen: AsyncIterator[str]) -> list[str]:
@@ -151,3 +158,58 @@ def test_improve_already_natural_returns_empty_changes():
     assert isinstance(result, ImproveResult)
     assert result.improved == "This is already perfect."
     assert result.changes == []
+
+
+# --- per-feature model routing ----------------------------------------------
+
+
+class _ModelSpyLLM:
+    """Records the ``model`` kwarg each call receives, so a test can assert the
+    model TransformService resolves per feature actually reaches the provider."""
+
+    def __init__(self, payload: str = "{}") -> None:
+        self._payload = payload
+        self.model: str | None = None
+
+    async def complete(self, messages, *, model=None, **kwargs) -> str:
+        self.model = model
+        return self._payload
+
+    async def stream_chat(self, messages, *, model=None, **kwargs) -> AsyncIterator[str]:
+        self.model = model
+        yield "x"
+
+
+def test_translate_passes_per_feature_model_to_provider():
+    spy = _ModelSpyLLM()
+    svc = TransformService(
+        spy, _settings(TRANSLATE_LLM_MODEL="groq/translate-x", LLM_MODEL="default-m")
+    )
+    _collect(svc.translate("hi", target_lang="ES"))
+    assert spy.model == "groq/translate-x"
+
+
+def test_explain_passes_per_feature_model_to_provider():
+    spy = _ModelSpyLLM(_VALID_CARD)
+    svc = TransformService(
+        spy, _settings(EXPLAIN_LLM_MODEL="groq/explain-x", LLM_MODEL="default-m")
+    )
+    _run(svc.explain("x", "a sentence with x", target_lang="ES"))
+    assert spy.model == "groq/explain-x"
+
+
+def test_improve_passes_per_feature_model_to_provider():
+    spy = _ModelSpyLLM(_VALID_IMPROVE)
+    svc = TransformService(
+        spy, _settings(IMPROVE_LLM_MODEL="groq/improve-x", LLM_MODEL="default-m")
+    )
+    _run(svc.improve("some text", target_lang="ES"))
+    assert spy.model == "groq/improve-x"
+
+
+def test_model_falls_back_to_llm_model_when_per_feature_unset():
+    # No IMPROVE_LLM_MODEL: the resolved model must be the global LLM_MODEL.
+    spy = _ModelSpyLLM(_VALID_IMPROVE)
+    svc = TransformService(spy, _settings(LLM_MODEL="default-m"))
+    _run(svc.improve("some text", target_lang="ES"))
+    assert spy.model == "default-m"

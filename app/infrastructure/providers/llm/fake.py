@@ -44,10 +44,13 @@ class FakeLLMProvider:
         response_format: dict | None = None,
     ) -> str:
         content = _last_user(messages)
-        # explain sends "Term: <term>\n\nSentence: ..."; anything else is the raw
-        # text from improve. Both return card-/result-shaped JSON literals (not the
-        # application models) to keep the fake decoupled from the app layer.
-        if content.startswith("Term: "):
+        # explain sends the exact shape "Term: <term>\n\nSentence: ..."; anything
+        # else is the raw text from improve. Match on both markers, not just the
+        # "Term: " prefix — improve text that happens to start with "Term: " must
+        # still route to improve (a bare prefix check misroutes it and 502s). Both
+        # branches return card-/result-shaped JSON literals (not the application
+        # models) to keep the fake decoupled from the app layer.
+        if content.startswith("Term: ") and "\n\nSentence: " in content:
             term = content[len("Term: ") :].split("\n", 1)[0].strip() or "example"
             return json.dumps(
                 {

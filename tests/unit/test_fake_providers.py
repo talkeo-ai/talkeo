@@ -64,6 +64,23 @@ def test_fake_llm_complete_returns_valid_improve_json():
     assert result.changes == []
 
 
+def test_fake_llm_complete_routes_improve_text_starting_with_term():
+    # Improve text can legitimately start with "Term: "; the fake must still treat
+    # it as improve (raw text), not explain, or the result fails ImproveResult
+    # validation and the endpoint 502s. Explain is identified by its full shape
+    # ("Term: ...\n\nSentence: ..."), which this input lacks.
+    async def run() -> str:
+        provider = FakeLLMProvider()
+        messages = [Message(role="user", content="Term: sheets are due tomorrow")]
+        return await provider.complete(messages)
+
+    raw = asyncio.run(run())
+
+    result = ImproveResult.model_validate_json(raw)
+    assert result.improved == "Term: sheets are due tomorrow"
+    assert result.changes == []
+
+
 def test_fake_stt_returns_transcript():
     async def run() -> Transcript:
         provider = FakeSTTProvider()
