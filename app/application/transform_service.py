@@ -16,7 +16,9 @@ from collections.abc import AsyncIterator
 from pydantic import ValidationError
 
 from app.application.cards import ExplainCard
+from app.application.improvements import ImproveResult
 from app.application.prompts import render_prompt
+from app.core.config import Settings, get_settings
 from app.domain.providers.errors import LLMError
 from app.domain.providers.llm import LLMProvider
 from app.domain.providers.messages import Message
@@ -38,8 +40,11 @@ def _strip_json_fences(text: str) -> str:
 class TransformService:
     """Coordinates text transforms over an injected ``LLMProvider`` port."""
 
-    def __init__(self, llm: LLMProvider) -> None:
+    def __init__(self, llm: LLMProvider, settings: Settings | None = None) -> None:
         self._llm = llm
+        # Settings carry the per-feature model overrides (``*_LLM_MODEL``); only
+        # the model name varies per feature, the gateway endpoint is global.
+        self._settings = settings or get_settings()
 
     async def translate(
         self,
@@ -61,7 +66,10 @@ class TransformService:
             target_lang=target_lang,
         )
         messages = [Message("system", prompt), Message("user", text)]
-        async for delta in self._llm.stream_chat(messages, temperature=0.2):
+        model = self._settings.TRANSLATE_LLM_MODEL or self._settings.LLM_MODEL
+        async for delta in self._llm.stream_chat(
+            messages, model=model, temperature=0.2
+        ):
             yield delta
 
     async def explain(
@@ -93,8 +101,10 @@ class TransformService:
         )
         content = f"Term: {term}\n\nSentence: {sentence}"
         messages = [Message("system", prompt), Message("user", content)]
+        model = self._settings.EXPLAIN_LLM_MODEL or self._settings.LLM_MODEL
         raw = await self._llm.complete(
             messages,
+            model=model,
             temperature=0.3,
             response_format={"type": "json_object"},
         )
@@ -102,3 +112,37 @@ class TransformService:
             return ExplainCard.model_validate_json(_strip_json_fences(raw))
         except ValidationError as exc:
             raise LLMError("provider_error", "explanation was not valid") from exc
+
+    async def improve(
+        self,
+        text: str,
+        *,
+        target_lang: str,
+    ) -> ImproveResult:
+        """Return a native/natural rewrite of ``text`` plus the changes made.
+
+        ``text`` is English (the language being improved); ``target_lang`` is the
+        learner's language, used only for the teaching text (each change's ``why``
+        and the target side of its examples). ``text`` is untrusted input, so it
+        rides in the user message rather than the system prompt, the same
+        injection-resistant shape ``translate``/``explain`` use.
+
+        The model is asked for strict JSON (its JSON mode) at a low temperature;
+        the result is validated against ``ImproveResult``. An empty ``changes``
+        list is a valid result ("already natural"), not an error. A malformed or
+        non-conforming response surfaces as a provider error (the router maps it
+        to 502) rather than reaching the client.
+        """
+        prompt = render_prompt("improve", target_lang=target_lang)
+        messages = [Message("system", prompt), Message("user", text)]
+        model = self._settings.IMPROVE_LLM_MODEL or self._settings.LLM_MODEL
+        raw = await self._llm.complete(
+            messages,
+            model=model,
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        try:
+            return ImproveResult.model_validate_json(_strip_json_fences(raw))
+        except ValidationError as exc:
+            raise LLMError("provider_error", "improvement was not valid") from exc

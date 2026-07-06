@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     LLM_CONNECT_TIMEOUT: float = 5.0
     LLM_READ_TIMEOUT: float = 60.0
 
+    # Per-feature model overrides (translate / explain / improve). Each falls back
+    # to LLM_MODEL when unset — same shape as AGENT_LLM_MODEL. Only the *model
+    # name* varies per feature; the endpoint stays the single LiteLLM gateway
+    # (ADR-008), which routes by model name to the provider behind it. Example:
+    # IMPROVE_LLM_MODEL=openai/gpt-oss-120b while the rest run the default model.
+    TRANSLATE_LLM_MODEL: str | None = None
+    EXPLAIN_LLM_MODEL: str | None = None
+    IMPROVE_LLM_MODEL: str | None = None
+
     # LiveKit TTS adapter (#4). `TTS_ENGINE` picks the LiveKit plugin behind the
     # `livekit` adapter; swapping it is config-only. Voice/model are optional —
     # `None` lets the plugin use its own default. Keys are required (validated in

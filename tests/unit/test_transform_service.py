@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from app.application.cards import ExplainCard
+from app.application.improvements import ImproveResult
 from app.application.transform_service import TransformService
 from app.domain.providers.errors import LLMError
 from app.infrastructure.providers.llm.fake import FakeLLMProvider
@@ -100,3 +101,53 @@ def test_explain_fake_provider_returns_valid_card():
     card = _run(svc.explain("jumps over", "The fox jumps over.", target_lang="ES"))
     assert isinstance(card, ExplainCard)
     assert card.term == "jumps over"  # echoed from the user message
+
+
+# --- improve (structured JSON) ----------------------------------------------
+
+
+_VALID_IMPROVE = json.dumps(
+    {
+        "improved": "These improvements are great.",
+        "changes": [
+            {
+                "original": "This improvements",
+                "fixed": "These improvements",
+                "why": "Con plural va 'these', no 'this'.",
+                "type": "grammar",
+                "examples": [
+                    {"source": "**These** books", "target": "**Estos** libros"}
+                ],
+            }
+        ],
+    }
+)
+
+
+def test_improve_returns_parsed_result():
+    svc = TransformService(_JsonLLM(_VALID_IMPROVE))
+    result = _run(svc.improve("This improvements are great.", target_lang="ES"))
+    assert isinstance(result, ImproveResult)
+    assert result.improved == "These improvements are great."
+    assert len(result.changes) == 1
+    change = result.changes[0]
+    assert change.original == "This improvements"
+    assert change.fixed == "These improvements"
+    assert change.type == "grammar"
+    assert change.examples[0].source == "**These** books"
+
+
+def test_improve_malformed_json_raises_provider_error():
+    svc = TransformService(_JsonLLM("not json at all"))
+    with pytest.raises(LLMError) as excinfo:
+        _run(svc.improve("some text", target_lang="ES"))
+    assert excinfo.value.code == "provider_error"
+
+
+def test_improve_already_natural_returns_empty_changes():
+    # The dev fake echoes the text with no changes: the "already natural" path.
+    svc = TransformService(FakeLLMProvider())
+    result = _run(svc.improve("This is already perfect.", target_lang="ES"))
+    assert isinstance(result, ImproveResult)
+    assert result.improved == "This is already perfect."
+    assert result.changes == []

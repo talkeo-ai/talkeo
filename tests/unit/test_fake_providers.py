@@ -1,6 +1,7 @@
 import asyncio
 
 from app.application.cards import ExplainCard
+from app.application.improvements import ImproveResult
 from app.domain.providers.messages import Message
 from app.domain.providers.stt import Transcript
 from app.infrastructure.providers.llm.fake import FakeLLMProvider
@@ -46,6 +47,21 @@ def test_fake_llm_complete_returns_valid_card_json():
     card = ExplainCard.model_validate_json(raw)
     assert card.term == "light"  # echoed from the user message
     assert card.meanings
+
+
+def test_fake_llm_complete_returns_valid_improve_json():
+    async def run() -> str:
+        provider = FakeLLMProvider()
+        # No "Term:" prefix, so the fake treats it as improve input.
+        messages = [Message(role="user", content="I has a question")]
+        return await provider.complete(messages)
+
+    raw = asyncio.run(run())
+
+    # The dev fake returns an improve-shaped JSON the application can validate.
+    result = ImproveResult.model_validate_json(raw)
+    assert result.improved == "I has a question"  # echoed, already-natural
+    assert result.changes == []
 
 
 def test_fake_stt_returns_transcript():

@@ -18,9 +18,10 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.api.deps import get_llm_provider
+from app.api.deps import Settings, get_llm_provider, get_settings
 from app.api.sse import StreamError, sse_response
 from app.application.cards import ExplainCard
+from app.application.improvements import ImproveResult
 from app.application.transform_service import TransformService
 from app.domain.providers.errors import ProviderError
 from app.domain.providers.llm import LLMProvider
@@ -52,6 +53,13 @@ class ExplainRequest(BaseModel):
     source_lang: str | None = None
 
 
+class ImproveRequest(BaseModel):
+    # ``text`` is the English being improved; ``target_lang`` is the learner's
+    # language, used only for the teaching text (each change's why / examples).
+    text: str
+    target_lang: str
+
+
 async def _as_sse(source: AsyncIterator[str]) -> AsyncIterator[str]:
     """Bridge a service delta stream to the SSE layer: a domain ``ProviderError``
     becomes a ``StreamError`` so the helper emits a clean ``event: error`` frame
@@ -67,6 +75,7 @@ async def _as_sse(source: AsyncIterator[str]) -> AsyncIterator[str]:
 async def translate(
     req: TranslateRequest,
     llm: LLMProvider = Depends(get_llm_provider),
+    settings: Settings = Depends(get_settings),
 ):
     if not req.text or not req.text.strip():
         return JSONResponse(
@@ -74,7 +83,7 @@ async def translate(
             status_code=400,
         )
 
-    service = TransformService(llm)
+    service = TransformService(llm, settings)
     return sse_response(
         _as_sse(
             service.translate(
@@ -90,6 +99,7 @@ async def translate(
 async def explain(
     req: ExplainRequest,
     llm: LLMProvider = Depends(get_llm_provider),
+    settings: Settings = Depends(get_settings),
 ):
     if not req.term or not req.term.strip():
         return JSONResponse(
@@ -105,7 +115,7 @@ async def explain(
     # explain returns a short structured card, not prose, so this route responds
     # with JSON (not SSE). The status is sent after the model call, so a provider
     # failure maps to a clean status here rather than an in-band error frame.
-    service = TransformService(llm)
+    service = TransformService(llm, settings)
     try:
         return await service.explain(
             req.term,
@@ -113,6 +123,31 @@ async def explain(
             source_lang=req.source_lang,
             target_lang=req.target_lang,
         )
+    except ProviderError as exc:
+        return JSONResponse(
+            {"code": exc.code, "message": exc.message},
+            status_code=_STATUS.get(exc.code, 502),
+        )
+
+
+@router.post("/improve", response_model=ImproveResult)
+async def improve(
+    req: ImproveRequest,
+    llm: LLMProvider = Depends(get_llm_provider),
+    settings: Settings = Depends(get_settings),
+):
+    if not req.text or not req.text.strip():
+        return JSONResponse(
+            {"code": "bad_request", "message": "text is required"},
+            status_code=400,
+        )
+
+    # Like explain, improve returns a short structured result (the rewrite plus
+    # its changes), so this route responds with JSON, not SSE. An empty
+    # ``changes`` list ("already natural") is a normal 200 response.
+    service = TransformService(llm, settings)
+    try:
+        return await service.improve(req.text, target_lang=req.target_lang)
     except ProviderError as exc:
         return JSONResponse(
             {"code": exc.code, "message": exc.message},

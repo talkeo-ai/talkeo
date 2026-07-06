@@ -1,0 +1,44 @@
+# Talkeo LLM gateway (ADR-008). One proxy fronts every provider; the app never
+# talks to Groq/Fireworks/Gemini directly — it points LITELLM_BASE_URL at this
+# proxy and selects a model by its `model_name` alias below. Switching model OR
+# provider is then just a config value in .env (LLM_MODEL / AGENT_LLM_MODEL /
+# <FEATURE>_LLM_MODEL) — zero app code changes.
+#
+# Keys are read from the environment (os.environ/...), never hardcoded here, so
+# this file is safe to commit. A model whose key is unset simply errors when it
+# is called; every other model keeps working. To add a provider, drop in a new
+# entry + its *_API_KEY in .env — nothing else.
+#
+# Run:  set -a && source .env && set +a && uv run litellm --config litellm_config.yaml --port 4000
+
+model_list:
+  # ── Groq ──────────────────────────────────────────────────────────────────
+  - model_name: groq/gpt-oss-120b
+    litellm_params:
+      model: groq/openai/gpt-oss-120b        # Groq serves gpt-oss under openai/*
+      api_key: os.environ/GROQ_API_KEY
+  - model_name: groq/llama-3.3-70b
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+  # ── Fireworks (same gpt-oss model, different provider — flip by alias) ──────
+  - model_name: fireworks/gpt-oss-120b
+    litellm_params:
+      model: fireworks_ai/accounts/fireworks/models/gpt-oss-120b
+      api_key: os.environ/FIREWORKS_AI_API_KEY
+
+  # ── Gemini ─────────────────────────────────────────────────────────────────
+  - model_name: gemini/flash-lite
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite-preview
+      api_key: os.environ/GEMINI_API_KEY
+
+litellm_settings:
+  # Drop provider-unsupported params (e.g. a reasoning model rejecting
+  # temperature) instead of hard-erroring; our Pydantic validation, not the
+  # provider's flag, is the real correctness guarantee.
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # app -> proxy auth (== LITELLM_API_KEY)

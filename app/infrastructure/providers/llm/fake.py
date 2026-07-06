@@ -3,9 +3,10 @@
 Implements ``LLMProvider`` with no external dependency. Two jobs: prove the
 port is implementable, and give self-hosted/dev users a no-keys mode
 (``LLM_PROVIDER=fake``). ``stream_chat`` echoes the last user message as
-word-by-word deltas; ``complete`` returns a canned, valid vocab-card JSON so the
-structured ``/explain`` endpoint renders a real card in dev (mac#4 can build its
-UI against it with no keys).
+word-by-word deltas; ``complete`` returns canned, valid structured JSON so the
+``/explain`` and ``/improve`` endpoints render real data in dev (mac#4 and mac#5
+can build their UI against it with no keys). It tells the two apart by the shape
+of the user message: explain sends ``Term: ...``, improve sends the raw text.
 """
 
 import json
@@ -42,22 +43,30 @@ class FakeLLMProvider:
         max_tokens: int | None = None,
         response_format: dict | None = None,
     ) -> str:
-        # Pull the term out of the "Term: <term>\n\nSentence: ..." user message
-        # so the dev card echoes the real input; fall back to a placeholder.
         content = _last_user(messages)
-        term = "example"
+        # explain sends "Term: <term>\n\nSentence: ..."; anything else is the raw
+        # text from improve. Both return card-/result-shaped JSON literals (not the
+        # application models) to keep the fake decoupled from the app layer.
         if content.startswith("Term: "):
-            term = content[len("Term: ") :].split("\n", 1)[0].strip() or term
-        # Card-shaped JSON (a literal, not the ExplainCard type — keeps the fake
-        # generic and decoupled from the application model).
-        return json.dumps(
-            {
-                "term": term,
-                "category": "noun",
-                "meanings": [f"fake meaning of {term}"],
-                "examples": [
-                    {"source": f"A **{term}** in a sentence.", "target": "Un ejemplo."}
-                ],
-                "insight": {"type": "pattern", "text": f"Nota de ejemplo sobre {term}."},
-            }
-        )
+            term = content[len("Term: ") :].split("\n", 1)[0].strip() or "example"
+            return json.dumps(
+                {
+                    "term": term,
+                    "category": "noun",
+                    "meanings": [f"fake meaning of {term}"],
+                    "examples": [
+                        {
+                            "source": f"A **{term}** in a sentence.",
+                            "target": "Un ejemplo.",
+                        }
+                    ],
+                    "insight": {
+                        "type": "pattern",
+                        "text": f"Nota de ejemplo sobre {term}.",
+                    },
+                }
+            )
+        # improve: echo the text back as already-natural (empty changes). A real
+        # rewrite needs a real model; the fake gives a valid, deterministic result
+        # so the endpoint and the "already natural" UI state work with no keys.
+        return json.dumps({"improved": content, "changes": []})

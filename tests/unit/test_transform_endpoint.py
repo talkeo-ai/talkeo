@@ -10,6 +10,7 @@ from app.main import app
 
 _URL = "/api/v1/transform/translate"
 _EXPLAIN_URL = "/api/v1/transform/explain"
+_IMPROVE_URL = "/api/v1/transform/improve"
 
 
 class _RaisingLLM:
@@ -123,5 +124,40 @@ def test_explain_missing_target_lang_is_422():
 
 def test_explain_malformed_model_output_maps_to_502():
     resp = _client(_BadJsonLLM()).post(_EXPLAIN_URL, json=_explain_body())
+    assert resp.status_code == 502
+    assert resp.json()["code"] == "provider_error"
+
+
+# --- improve (structured JSON, not SSE) -------------------------------------
+
+
+def test_improve_returns_json_result():
+    resp = _client(FakeLLMProvider()).post(
+        _IMPROVE_URL, json={"text": "This is fine.", "target_lang": "ES"}
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    result = resp.json()
+    assert result["improved"] == "This is fine."  # echoed by the fake
+    assert result["changes"] == []  # fake reports already-natural
+
+
+def test_improve_empty_text_maps_to_400():
+    resp = _client(FakeLLMProvider()).post(
+        _IMPROVE_URL, json={"text": "   ", "target_lang": "ES"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["code"] == "bad_request"
+
+
+def test_improve_missing_target_lang_is_422():
+    resp = _client(FakeLLMProvider()).post(_IMPROVE_URL, json={"text": "hi"})
+    assert resp.status_code == 422
+
+
+def test_improve_malformed_model_output_maps_to_502():
+    resp = _client(_BadJsonLLM()).post(
+        _IMPROVE_URL, json={"text": "hi there", "target_lang": "ES"}
+    )
     assert resp.status_code == 502
     assert resp.json()["code"] == "provider_error"
