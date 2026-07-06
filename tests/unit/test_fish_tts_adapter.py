@@ -92,6 +92,22 @@ def test_no_reference_id_when_unset():
     assert "reference_id" not in captured["body"]
 
 
+def test_streams_chunks_incrementally():
+    # Incremental streaming is the point (#22): the response body arrives in
+    # several chunks and each is yielded as it lands, not buffered into one.
+    def handler(request: httpx.Request) -> httpx.Response:
+        async def stream():
+            yield b"\x01\x01"
+            yield b"\x02\x02"
+            yield b"\x03\x03"
+
+        return httpx.Response(200, content=stream())
+
+    chunks = _collect(_provider(handler))
+    assert chunks == [b"\x01\x01", b"\x02\x02", b"\x03\x03"]
+    assert b"".join(chunks) == b"\x01\x01\x02\x02\x03\x03"
+
+
 # --- errors ------------------------------------------------------------------
 
 
@@ -123,6 +139,26 @@ def test_http_errors_map_to_tts_error(status, code):
     with pytest.raises(TTSError) as excinfo:
         _collect(_provider(handler))
     assert excinfo.value.code == code
+
+
+def test_gateway_timeout_status_maps_to_timeout():
+    # Fish returns 504 when the upstream synthesis times out.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(504, content=b"upstream timeout")
+
+    with pytest.raises(TTSError) as excinfo:
+        _collect(_provider(handler))
+    assert excinfo.value.code == "timeout"
+
+
+def test_transport_timeout_maps_to_timeout():
+    # A client-side timeout (connect/read) surfaces as httpx.TimeoutException.
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    with pytest.raises(TTSError) as excinfo:
+        _collect(_provider(handler))
+    assert excinfo.value.code == "timeout"
 
 
 def test_empty_body_is_provider_error():

@@ -26,27 +26,21 @@ from app.domain.providers.errors import TTSError
 
 _ENDPOINT = "https://api.fish.audio/v1/tts"
 
-# Map an HTTP status onto a domain error code (same tokens the other adapters
-# and the endpoint's `_STATUS` table use).
-_STATUS_CODES = {
-    400: "bad_request",
-    401: "auth",
-    403: "auth",
-    429: "rate_limit",
+# Map an HTTP status onto a domain (code, message) — the same tokens the other
+# adapters and the endpoint's `_STATUS` table use. Anything not listed falls
+# through to a generic provider error.
+_STATUS_ERRORS: dict[int, tuple[str, str]] = {
+    400: ("bad_request", "invalid TTS request"),
+    401: ("auth", "TTS authentication failed"),
+    403: ("auth", "TTS authentication failed"),
+    429: ("rate_limit", "TTS rate limit exceeded"),
+    504: ("timeout", "TTS request timed out"),
 }
 
 
 def _to_tts_error(status: int) -> TTSError:
-    code = _STATUS_CODES.get(status)
-    if code == "bad_request":
-        return TTSError("bad_request", "invalid TTS request")
-    if code == "auth":
-        return TTSError("auth", "TTS authentication failed")
-    if code == "rate_limit":
-        return TTSError("rate_limit", "TTS rate limit exceeded")
-    if status == 504:
-        return TTSError("timeout", "TTS request timed out")
-    return TTSError("provider_error", "TTS request failed")
+    code, message = _STATUS_ERRORS.get(status, ("provider_error", "TTS request failed"))
+    return TTSError(code, message)
 
 
 class FishTTSProvider:
@@ -76,9 +70,18 @@ class FishTTSProvider:
             "text": clean,
             "format": "pcm",
             "sample_rate": 24000,
+            # `balanced` is Fish's low-latency mode: it starts emitting audio
+            # sooner (at a hair of quality) — the right trade for streaming-first
+            # playback that starts at the first chunk (#22).
             "latency": "balanced",
+            # Max chunk size (chars). Fewer, larger server-side chunks give the
+            # model more context per chunk → steadier prosody and fewer seams;
+            # short /speak snippets usually stay a single chunk anyway.
             "chunk_length": 300,
-            "normalize": False,
+            # Keep Fish's text normalization on (its default). It expands
+            # numbers/dates/currency ("$5" → "five dollars", "25" → "twenty-five")
+            # — mispronouncing those is costly for a learning-focused TTS.
+            "normalize": True,
         }
         reference_id = voice or self._settings.FISH_VOICE
         if reference_id:

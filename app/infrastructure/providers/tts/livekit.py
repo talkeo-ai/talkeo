@@ -118,13 +118,17 @@ def build_tts_plugin(
 
         # Deepgram Aura: `linear16` is s16le PCM; pin the rate to the port's.
         # The voice is part of the model name (e.g. `aura-2-andromeda-en`), so
-        # `TTS_VOICE` maps onto `model` here — there is no separate voice field.
+        # both voice and model collapse onto Deepgram's single `model` field —
+        # there is no separate voice param. Precedence mirrors the other engines:
+        # a per-request `voice` always wins, then config (`TTS_MODEL`, then
+        # `TTS_VOICE`). Using `voice` — not `chosen_voice` — keeps the caller's
+        # voice ahead of `TTS_MODEL`; `chosen_voice` folds `TTS_VOICE` in early.
         kwargs = {
             "api_key": settings.DEEPGRAM_API_KEY,
             "encoding": "linear16",
             "sample_rate": 24000,
         }
-        model = settings.TTS_MODEL or chosen_voice
+        model = voice or settings.TTS_MODEL or settings.TTS_VOICE
         if model:
             kwargs["model"] = model
         return deepgram.TTS(**kwargs)

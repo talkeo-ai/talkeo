@@ -215,6 +215,39 @@ def test_build_tts_plugin_deepgram():
     assert "deepgram" in type(plugin).__module__
 
 
+def test_deepgram_per_request_voice_wins_over_config():
+    # Deepgram folds voice into its single `model` field. A per-request `voice`
+    # must win over config, mirroring the other engines — not be dropped when
+    # `TTS_MODEL` is set (the bug this asserts against).
+    plugin = build_tts_plugin(
+        Settings(
+            ENV="test",
+            _env_file=None,
+            DEEPGRAM_API_KEY="dg-test",
+            TTS_MODEL="aura-2-andromeda-en",
+            TTS_VOICE="aura-2-thalia-en",
+        ),
+        engine="deepgram",
+        voice="aura-2-luna-en",
+    )
+    assert plugin.model == "aura-2-luna-en"
+
+
+def test_deepgram_falls_back_to_config_when_no_voice():
+    # No per-request voice → config decides, with `TTS_MODEL` ahead of `TTS_VOICE`.
+    plugin = build_tts_plugin(
+        Settings(
+            ENV="test",
+            _env_file=None,
+            DEEPGRAM_API_KEY="dg-test",
+            TTS_MODEL="aura-2-andromeda-en",
+            TTS_VOICE="aura-2-thalia-en",
+        ),
+        engine="deepgram",
+    )
+    assert plugin.model == "aura-2-andromeda-en"
+
+
 def test_build_tts_plugin_unknown_engine():
     with pytest.raises(TTSError) as excinfo:
         build_tts_plugin(Settings(ENV="test", _env_file=None), engine="bogus")
