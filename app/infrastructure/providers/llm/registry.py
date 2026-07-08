@@ -2,6 +2,11 @@
 
 Use cases never import an adapter directly; they depend on the ``LLMProvider``
 port and receive the selected adapter via DI (``app/api/deps.py``).
+
+There is one adapter pointed at the single LiteLLM gateway (ADR-008). Running a
+feature on a different model is a per-call ``model=`` override (resolved from the
+``*_LLM_MODEL`` settings in the service), not a different provider — the gateway
+routes by model name to the provider behind it.
 """
 
 from app.core.config import Settings
