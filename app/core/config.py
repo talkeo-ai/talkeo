@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # forbidden in real environments by the validator below. Real adapters land
     # in #3 (litellm) and #4/B.1 (livekit).
     LLM_PROVIDER: Literal["fake", "litellm"] = "fake"
-    TTS_PROVIDER: Literal["fake", "livekit"] = "fake"
+    TTS_PROVIDER: Literal["fake", "livekit", "fish"] = "fake"
     STT_PROVIDER: Literal["fake", "livekit"] = "fake"
 
     # LiteLLM gateway (used by the litellm adapter in #3). Documented in
@@ -51,12 +51,24 @@ class Settings(BaseSettings):
     # the registry) only for the selected engine. `TTS_TIMEOUT` bounds the
     # standalone synthesize call. Output is raw PCM (s16le, 24 kHz, mono) —
     # the fixed `TTSProvider` wire format, not configurable per request.
-    TTS_ENGINE: Literal["openai", "elevenlabs"] = "openai"
+    TTS_ENGINE: Literal["openai", "elevenlabs", "cartesia", "deepgram"] = "openai"
     TTS_VOICE: str | None = None
     TTS_MODEL: str | None = None
     TTS_TIMEOUT: float = 30.0
     OPENAI_API_KEY: str | None = None
     ELEVENLABS_API_KEY: str | None = None
+    CARTESIA_API_KEY: str | None = None
+    DEEPGRAM_API_KEY: str | None = None
+
+    # Fish Audio TTS — a native adapter (`TTS_PROVIDER=fish`), not a LiveKit
+    # plugin: Fish has no plugin, and its one-shot HTTP API (raw PCM out) is a
+    # direct fit for the streaming port. `FISH_VOICE` is the `reference_id` of a
+    # cloned/library voice (omit for Fish's default voice); `FISH_MODEL` is the
+    # model header (`s2-pro` is the current high-quality default). Output is the
+    # same fixed wire format — PCM s16le, 24 kHz, mono.
+    FISH_API_KEY: str | None = None
+    FISH_VOICE: str | None = None
+    FISH_MODEL: str = "s2-pro"
 
     # Voice agent (LiveKit Agents worker, #15) — settings are named by surface so
     # the agent can run different engines/models than the api's /speak. The agent
@@ -72,7 +84,7 @@ class Settings(BaseSettings):
     # (ADR-008) via LiveKit's native `openai.LLM`, so both run off one gateway.
     # LiveKit room credentials are required only to run the worker (validated at
     # agent boot, not here — the api service runs in prod without them).
-    AGENT_TTS_ENGINE: Literal["openai", "elevenlabs"] | None = None
+    AGENT_TTS_ENGINE: Literal["openai", "elevenlabs", "cartesia", "deepgram"] | None = None
     AGENT_LLM_MODEL: str | None = None
     LIVEKIT_URL: str | None = None
     LIVEKIT_API_KEY: str | None = None
